@@ -57,6 +57,7 @@ def parse_via_labels(filepath):
             parsed_labels[row[r"#filename"]] = new_image
             new_image = {}
         
+    return 
 
 
 
