@@ -22,100 +22,10 @@ import io
 import pandas as pd
 import tensorflow as tf
 import json
+from collections import defaultdict
 
 from PIL import Image
-from object_detection.utils import dataset_util
-
-flags = tf.app.flags
-flags.DEFINE_string('output_path', '', 'Path to output TFRecord')
-FLAGS = flags.FLAGS
-
-
-def parse_via_labels(filepath):
-    labels = pd.read_csv(filepath)
-    parsed_labels = {}
-    new_image = {}
-    for i in range(labels.shape[0]):
-        row = labels.iloc[i]
-        
-        #Unpack bounding box dimensions
-        box = json.loads(row.region_shape_attributes)
-        min_x = box["x"]
-        min_y = box["y"]
-        max_x = box["width"] + min_x
-        max_y = box["height"] + min_y
-        
-        #Store this information in the new_image object
-        new_image["xmins"] = new_image.get("xmins", []).append(min_x)
-        new_image["ymins"] = new_image.get("ymins", []).append(min_y)
-        new_image["xmaxs"] = new_image.get("xmaxs", []).append(max_x)
-        new_image["ymaxs"] = new_image.get("ymaxs", []).append(max_y)
-        
-        #If this is the last region for this image
-        if row.region_id == row.region_count - 1:
-            #Store the regions and initialize a new image
-            parsed_labels[row[r"#filename"]] = new_image
-            new_image = {}
-        
-    return 
-
-
-
-
-def create_tf_example(example):
-  # TODO(user): Populate the following variables from your example.
-  height = None # Image height
-  width = None # Image width
-  filename = None # Filename of the image. Empty if image is not from file
-  encoded_image_data = None # Encoded image bytes
-  image_format = None # b'jpeg' or b'png'
-
-  xmins = [] # List of normalized left x coordinates in bounding box (1 per box)
-  xmaxs = [] # List of normalized right x coordinates in bounding box
-             # (1 per box)
-  ymins = [] # List of normalized top y coordinates in bounding box (1 per box)
-  ymaxs = [] # List of normalized bottom y coordinates in bounding box
-             # (1 per box)
-  classes_text = [] # List of string class name of bounding box (1 per box)
-  classes = [] # List of integer class id of bounding box (1 per box)
-
-  tf_example = tf.train.Example(features=tf.train.Features(feature={
-      'image/height': dataset_util.int64_feature(height),
-      'image/width': dataset_util.int64_feature(width),
-      'image/filename': dataset_util.bytes_feature(filename),
-      'image/source_id': dataset_util.bytes_feature(filename),
-      'image/encoded': dataset_util.bytes_feature(encoded_image_data),
-      'image/format': dataset_util.bytes_feature(image_format),
-      'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
-      'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
-      'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
-      'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
-      'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
-      'image/object/class/label': dataset_util.int64_list_feature(classes),
-  }))
-  return tf_example
-
-
-def main(_):
-  writer = tf.python_io.TFRecordWriter(FLAGS.output_path)
-
-  # TODO(user): Write code to read in your dataset to examples variable
-
-  for example in examples:
-    tf_example = create_tf_example(example)
-    writer.write(tf_example.SerializeToString())
-
-  writer.close()
-
-
-#if __name__ == '__main__':
-#  tf.app.run()
-  
-  
-  
-# =============================================================================
-# 
-# =============================================================================
+import dataset_util
 
 flags = tf.app.flags
 flags.DEFINE_string('csv_input', r'C:\Users\dwubu\Desktop\TESE thaw 3-5-2019_Annotated_ImageData\via_regions_filtered.csv', 'Path to the CSV input')
@@ -124,72 +34,86 @@ flags.DEFINE_string('image_dir', r'C:\Users\dwubu\Desktop\TESE thaw 3-5-2019_Ann
 FLAGS = flags.FLAGS
 
 
-#Only single image labels - return 1. Implement your own label processing!
-def class_text_to_int(row_label):
-    return 1
+def parse_via_labels(filepath):
+    labels = pd.read_csv(filepath)
+    parsed_labels = {}
+    new_image = defaultdict(list)
+    for i in range(labels.shape[0]):
+        row = labels.iloc[i]
+                
+        #Unpack bounding box dimensions
+        box = json.loads(row.region_shape_attributes)
+        min_x = box["x"]
+        min_y = box["y"]
+        max_x = box["width"] + min_x
+        max_y = box["height"] + min_y
+                
+        #Store this information in the new_image object
+        new_image["xmins"].append(min_x)
+        new_image["ymins"].append(min_y)
+        new_image["xmaxs"].append(max_x)
+        new_image["ymaxs"].append(max_y)
+        
+        #If this is the last region for this image
+        if row.region_id == row.region_count - 1:
+            #Store the regions and initialize a new image
+            parsed_labels[row[r"#filename"]] = new_image
+            new_image = defaultdict(list)
+        
+    return parsed_labels
 
 
 
-def split(df, group):
-    data = namedtuple('data', ['filename', 'object'])
-    gb = df.groupby(group)
-    return [data(filename, gb.get_group(x)) for filename, x in zip(gb.groups.keys(), gb.groups)]
-
-
-def create_tf_example(group, path):
-    with tf.gfile.GFile(os.path.join(path, '{}'.format(group.filename)), 'rb') as fid:
-        encoded_jpg = fid.read()
-    encoded_jpg_io = io.BytesIO(encoded_jpg)
+def create_tf_example(filename, dirpath, boxes):
+    
+    #Read in the image
+    with tf.gfile.GFile(os.path.join(dirpath, filename), 'rb') as fid:
+        encoded_image_data = fid.read()
+    encoded_jpg_io = io.BytesIO(encoded_image_data)
     image = Image.open(encoded_jpg_io)
+    
     width, height = image.size
+    _, ext = os.path.splitext(filename)
+    image_format = ext[1:].encode('UTF-8') # b'jpeg' or b'png'
 
-    filename = group.filename.encode('utf8')
-    image_format = b'jpg'
-    xmins = []
-    xmaxs = []
-    ymins = []
-    ymaxs = []
-    classes_text = []
-    classes = []
-
-    for index, row in group.object.iterrows():
-        xmins.append(row['xmin'] / width)
-        xmaxs.append(row['xmax'] / width)
-        ymins.append(row['ymin'] / height)
-        ymaxs.append(row['ymax'] / height)
-        classes_text.append(row['class'].encode('utf8'))
-        classes.append(class_text_to_int(row['class']))
+    xmins = [x/width for x in boxes['xmins']] # List of normalized left x coordinates in bounding box (1 per box)
+    xmaxs = [x/width for x in boxes['xmaxs']] # List of normalized right x coordinates in bounding box (1 per box)
+    ymins = [y/height for y in boxes['ymins']] # List of normalized top y coordinates in bounding box (1 per box)
+    ymaxs = [y/height for y in boxes['ymaxs']] # List of normalized bottom y coordinates in bounding box (1 per box)
+  
+    #DEFAULT LABELS AND CLASSES FOR IVF
+    classes_text = [b'sperm']*len(xmins) # List of string class name of bounding box (1 per box)
+    classes = [1]*len(xmins) # List of integer class id of bounding box (1 per box)
 
     tf_example = tf.train.Example(features=tf.train.Features(feature={
-        'image/height': dataset_util.int64_feature(height),
-        'image/width': dataset_util.int64_feature(width),
-        'image/filename': dataset_util.bytes_feature(filename),
-        'image/source_id': dataset_util.bytes_feature(filename),
-        'image/encoded': dataset_util.bytes_feature(encoded_jpg),
-        'image/format': dataset_util.bytes_feature(image_format),
-        'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
-        'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
-        'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
-        'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
-        'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
-        'image/object/class/label': dataset_util.int64_list_feature(classes),
-    }))
+                              'image/height': dataset_util.int64_feature(height),
+                              'image/width': dataset_util.int64_feature(width),
+                              'image/filename': dataset_util.bytes_feature(filename.encode('UTF-8')),
+                              'image/source_id': dataset_util.bytes_feature(filename.encode('UTF-8')),
+                              'image/encoded': dataset_util.bytes_feature(encoded_image_data),
+                              'image/format': dataset_util.bytes_feature(image_format),
+                              'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
+                              'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
+                              'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
+                              'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
+                              'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
+                              'image/object/class/label': dataset_util.int64_list_feature(classes),
+                              }))
     return tf_example
 
 
 def main(_):
-    writer = tf.python_io.TFRecordWriter(FLAGS.output_path)
-    path = os.path.join(FLAGS.image_dir)
-    examples = pd.read_csv(FLAGS.csv_input)
-    grouped = split(examples, 'filename')
-    for group in grouped:
-        tf_example = create_tf_example(group, path)
-        writer.write(tf_example.SerializeToString())
+  writer = tf.python_io.TFRecordWriter(FLAGS.output_path)
+  
+  image_labels = parse_via_labels(FLAGS.csv_input)
 
-    writer.close()
-    output_path = os.path.join(os.getcwd(), FLAGS.output_path)
-    print('Successfully created the TFRecords: {}'.format(output_path))
+  for image_name in image_labels.keys():
+    tf_example = create_tf_example(image_name, FLAGS.image_dir, image_labels[image_name])
+    writer.write(tf_example.SerializeToString())
+
+  writer.close()
 
 
-#if __name__ == '__main__':
-#    tf.app.run()
+if __name__ == '__main__':
+  tf.app.run()
+  
