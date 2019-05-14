@@ -21,7 +21,7 @@ import os
 try:
     filepath = str(sys.argv[1])
 except:
-    filepath = r'C:\Users\dwubu\Desktop\TESE thaw 3-5-2019_Annotated_ImageData\via_region_data.csv'
+    filepath = r'C:\Users\dwubu\Desktop\CS231n Data\via_region_data.csv'
     
 labels = pd.read_csv(filepath)
 new_labels = labels.copy(deep=True)
@@ -29,6 +29,11 @@ new_labels = labels.copy(deep=True)
 for i in range(labels.shape[0]):
     
     box = json.loads(labels.iloc[i].region_shape_attributes)
+    
+    #Skip empty boxes
+    if "name" not in box.keys():
+        continue
+    
     if box["name"] == "polygon":
         max_x = max(box['all_points_x'])
         min_x = min(box['all_points_x'])

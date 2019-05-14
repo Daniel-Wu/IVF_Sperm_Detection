@@ -28,9 +28,9 @@ from PIL import Image
 import dataset_util
 
 flags = tf.app.flags
-flags.DEFINE_string('csv_input', r'C:\Users\dwubu\Desktop\TESE thaw 3-5-2019_Annotated_ImageData\via_regions_filtered.csv', 'Path to the CSV input')
-flags.DEFINE_string('output_path', r'C:\Users\dwubu\Desktop\sperm_data.record', 'Path to output TFRecord')
-flags.DEFINE_string('image_dir', r'C:\Users\dwubu\Desktop\TESE thaw 3-5-2019_Annotated_ImageData', 'Path to the image directory')
+flags.DEFINE_string('csv_input', r'C:\Users\dwubu\Desktop\CS231n Data\via_regions_test.csv', 'Path to the CSV input')
+flags.DEFINE_string('output_path', r'C:\Users\dwubu\Desktop\test_data.record', 'Path to output TFRecord')
+flags.DEFINE_string('image_dir', r'C:\Users\dwubu\Desktop\CS231n Data', 'Path to the image directory')
 FLAGS = flags.FLAGS
 
 
@@ -39,7 +39,13 @@ def parse_via_labels(filepath):
     parsed_labels = {}
     new_image = defaultdict(list)
     for i in range(labels.shape[0]):
+        
         row = labels.iloc[i]
+
+        #If the image has no bounding boxes, skip it
+        if row.region_count == 0:
+            continue
+        
                 
         #Unpack bounding box dimensions
         box = json.loads(row.region_shape_attributes)
